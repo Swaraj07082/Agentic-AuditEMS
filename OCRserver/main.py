@@ -1,10 +1,60 @@
-from fastmcp import FastMCP
+import pytesseract
+from PIL import Image
+import io
+import filetype
+import fitz  # PyMuPDF
+import pandas as pd
+from docx import Document
 
 mcp = FastMCP(name = "OCRserver")
 
 @mcp.tool
-def add_numbers(a : int , b : int) -> int :
-    return a + b
+def ocr(file: bytes) -> str :
+    """Extract text from various file formats (Images, PDF, Excel, Word)."""
+    kind = filetype.guess(file)
+    content = ""
+    
+    if kind is None:
+        # Fallback to image OCR if detection fails but it might be an image
+        try:
+            image = Image.open(io.BytesIO(file))
+            return pytesseract.image_to_string(image).strip()
+        except Exception:
+            return "Error: Unsupported or unknown file format."
+
+    mime = kind.mime
+    
+    try:
+        if mime.startswith("image/"):
+            image = Image.open(io.BytesIO(file))
+            content = pytesseract.image_to_string(image)
+            
+        elif mime == "application/pdf":
+            doc = fitz.open(stream=file, filetype="pdf")
+            text_blocks = []
+            for page in doc:
+                text_blocks.append(page.get_text())
+            content = "\n".join(text_blocks)
+            doc.close()
+            
+        elif mime == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" or mime == "application/vnd.ms-excel":
+            df_dict = pd.read_excel(io.BytesIO(file), sheet_name=None)
+            sheets_content = []
+            for sheet_name, df in df_dict.items():
+                sheets_content.append(f"--- Sheet: {sheet_name} ---\n{df.to_string(index=False)}")
+            content = "\n\n".join(sheets_content)
+            
+        elif mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            doc = Document(io.BytesIO(file))
+            content = "\n".join([para.text for para in doc.paragraphs])
+            
+        else:
+            return f"Error: Unsupported file type ({mime})"
+            
+    except Exception as e:
+        return f"Error processing file: {str(e)}"
+
+    return content.strip()
 
 
 if __name__ == "__main__":
