@@ -4,8 +4,9 @@ SERVERS = {
         "command": "/snap/bin/uv",
         "args": [
             "run",
-            "fastmcp",
-            "run",
+            "--project",
+            "/home/swaraj/projects/AuditEMS/OCRserver",
+            "python3",
             "/home/swaraj/projects/AuditEMS/OCRserver/main.py"
         ]
     }

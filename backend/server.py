@@ -73,10 +73,17 @@ def create_ocr_node(client):
 
         file_bytes = state['document']
 
-        result = await client.call_tool(
-            "ocr",
-            file_bytes
-        )
+        # MultiServerMCPClient doesn't have call_tool. Use get_tools instead.
+        tools = await client.get_tools()
+        print(f"Available tools: {[t.name for t in tools]}")
+        
+        ocr_tool = next((t for t in tools if t.name == "ocr" or t.name.endswith("ocr")), None)
+        
+        if not ocr_tool:
+            return {'ocr_result': "Error: OCR tool not found."}
+            
+        # The 'ocr' tool in FastMCP expects a 'file' argument of type bytes.
+        result = await ocr_tool.ainvoke({"file": file_bytes})
 
         return {'ocr_result' : result}
     
@@ -106,4 +113,4 @@ workflow = graph.compile()
 # }
 
 
-# final_result = workflow.invoke(initial_state)
+# final_result = workflow.ainvoke(initial_state)

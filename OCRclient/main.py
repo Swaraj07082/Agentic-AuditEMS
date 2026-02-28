@@ -2,7 +2,7 @@ import asyncio
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 SERVERS = {
-    "math": {
+    "ocr": {
         "transport": "stdio",
         "command": "/snap/bin/uv",
         "args": [

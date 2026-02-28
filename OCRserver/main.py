@@ -1,3 +1,4 @@
+from mcp.server.fastmcp import FastMCP
 import pytesseract
 from PIL import Image
 import io
@@ -8,7 +9,7 @@ from docx import Document
 
 mcp = FastMCP(name = "OCRserver")
 
-@mcp.tool
+@mcp.tool()
 def ocr(file: bytes) -> str :
     """Extract text from various file formats (Images, PDF, Excel, Word)."""
     kind = filetype.guess(file)
@@ -47,6 +48,9 @@ def ocr(file: bytes) -> str :
         elif mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
             doc = Document(io.BytesIO(file))
             content = "\n".join([para.text for para in doc.paragraphs])
+            
+        elif mime == "text/plain":
+            content = file.decode("utf-8", errors="ignore")
             
         else:
             return f"Error: Unsupported file type ({mime})"

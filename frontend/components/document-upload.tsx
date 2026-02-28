@@ -34,7 +34,12 @@ export default function DocumentUpload() {
       const isValidType = [
         'application/pdf',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'text/plain'
+        'text/plain',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-excel',
+        'image/jpeg',
+        'image/png',
+        'image/webp'
       ].includes(file.type);
 
       if (!isValidType) {
@@ -85,7 +90,7 @@ export default function DocumentUpload() {
 
       // Based on fastapi_server.py, the endpoint is /ocr/ (with trailing slash)
       // And it runs on port 4000 usually, but here we assume relative path or proxy
-      const response = await fetch("http://127.0.0.1:4000/ocr/", {
+      const response = await fetch("http://127.0.0.1:4000/ocr", {
         method: "POST",
         body: formData
       });
@@ -147,15 +152,15 @@ export default function DocumentUpload() {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           className={`relative border-2 border-dashed rounded-2xl p-8 sm:p-16 text-center transition-all duration-300 animate-fade-in-scale ${isDragging
-              ? 'border-primary/60 bg-primary/10'
-              : 'border-border/50 bg-card/50 hover:border-border'
+            ? 'border-primary/60 bg-primary/10'
+            : 'border-border/50 bg-card/50 hover:border-border'
             }`}
         >
           <div className="flex flex-col items-center gap-4">
             <div
               className={`w-16 h-16 rounded-xl flex items-center justify-center transition-all ${isDragging
-                  ? 'bg-primary/20'
-                  : 'bg-primary/10 group-hover:bg-primary/15'
+                ? 'bg-primary/20'
+                : 'bg-primary/10 group-hover:bg-primary/15'
                 }`}
             >
               <Upload
@@ -178,13 +183,13 @@ export default function DocumentUpload() {
               <input
                 type="file"
                 multiple
-                accept=".pdf,.doc,.docx,.txt"
+                accept=".pdf,.doc,.docx,.txt,.xls,.xlsx,.jpg,.jpeg,.png,.webp"
                 onChange={handleFileSelect}
                 className="hidden"
               />
             </label>
             <p className="text-sm text-foreground/40 mt-4">
-              Supported: PDF, DOCX, DOC, TXT (Max 50MB each)
+              Supported: PDF, DOCX, TXT, Excel, Images (Max 50MB each)
             </p>
           </div>
         </div>
