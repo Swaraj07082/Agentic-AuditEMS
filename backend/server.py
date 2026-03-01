@@ -68,10 +68,13 @@ def audit_plan_generator(state : ChatState) -> ChatState:
     # print(result)
     return {'audit_plan' : result.audit_plan}
 
+import base64
+
 def create_ocr_node(client):
     async def ocr_node(state : ChatState) -> ChatState:
 
         file_bytes = state['document']
+        file_base64 = base64.b64encode(file_bytes).decode('utf-8')
 
         # MultiServerMCPClient doesn't have call_tool. Use get_tools instead.
         tools = await client.get_tools()
@@ -82,8 +85,8 @@ def create_ocr_node(client):
         if not ocr_tool:
             return {'ocr_result': "Error: OCR tool not found."}
             
-        # The 'ocr' tool in FastMCP expects a 'file' argument of type bytes.
-        result = await ocr_tool.ainvoke({"file": file_bytes})
+        # Use 'file_base64' argument for the tool
+        result = await ocr_tool.ainvoke({"file_base64": file_base64})
 
         return {'ocr_result' : result}
     
@@ -114,3 +117,5 @@ workflow = graph.compile()
 
 
 # final_result = workflow.ainvoke(initial_state)
+
+# MCP expects the data to be in JSON format , therefore we convert to base64 and send as string in JSON format , and not raw bytes.

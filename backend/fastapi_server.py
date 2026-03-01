@@ -1,6 +1,9 @@
 from fastapi import FastAPI, File, UploadFile
 import uvicorn
 import logging
+
+# Configure logging to show INFO messages
+logging.basicConfig(level=logging.INFO)
 from fastapi.middleware.cors import CORSMiddleware
 from server import workflow
 
@@ -27,6 +30,12 @@ async def get_docs_for_ocr(file: UploadFile = File(...)):
         "standard":"Schedule 3",
         "document" : content
     })
+
+    # Remove binary document from result to avoid FastAPI serialization errors
+    if "document" in result:
+        del result["document"]
+    
+    logging.info(f"this is the result {result}")
 
     return result
 

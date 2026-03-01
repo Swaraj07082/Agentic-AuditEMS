@@ -7,11 +7,18 @@ import fitz  # PyMuPDF
 import pandas as pd
 from docx import Document
 
+import base64
+
 mcp = FastMCP(name = "OCRserver")
 
 @mcp.tool()
-def ocr(file: bytes) -> str :
-    """Extract text from various file formats (Images, PDF, Excel, Word)."""
+def ocr(file_base64: str) -> str :
+    """Extract text from various file formats (Images, PDF, Excel, Word). Input should be base64 encoded."""
+    try:
+        file = base64.b64decode(file_base64)
+    except Exception as e:
+        return f"Error: Invalid base64 data ({str(e)})"
+        
     kind = filetype.guess(file)
     content = ""
     
@@ -50,7 +57,7 @@ def ocr(file: bytes) -> str :
             content = "\n".join([para.text for para in doc.paragraphs])
             
         elif mime == "text/plain":
-            content = file.decode("utf-8", errors="ignore")
+            content = file.decode("latin-1", errors="ignore")
             
         else:
             return f"Error: Unsupported file type ({mime})"
