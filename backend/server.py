@@ -1,5 +1,6 @@
 # %%
 from langgraph.graph import StateGraph , START , END
+from langgraph.types import interrupt, Command
 from typing import TypedDict
 import os
 from langchain_groq import ChatGroq
@@ -8,15 +9,19 @@ from langchain_core.output_parsers import JsonOutputParser , PydanticOutputParse
 from pydantic import BaseModel, Field
 import mcpServers
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from langgraph.checkpoint.memory import MemorySaver
 
 
 
 class ChatState(TypedDict):
     standard : str
     document : bytes
+    section_presence : bool
     necessary_sections : list[str]
+    missing_sections : list[str]
     audit_plan : list[str]
     ocr_result : str
+    audit_report : str
 
 
 class required_sections(BaseModel):
@@ -24,6 +29,12 @@ class required_sections(BaseModel):
 
 class audit_plan_structure(BaseModel):
     audit_plan : list[str] = Field(description="This is the audit plan list")
+
+class section_presence(BaseModel):
+    section_present : bool = Field(description="True if the section is present in the document , False otherwise")
+
+class missing_sections_class(BaseModel):
+    section_not_in_doc : list[str] = Field(description = "list of the sections which are not present in the document")
 
 def get_rules(state : ChatState) -> ChatState:
     llm = ChatGroq(
@@ -93,20 +104,114 @@ def create_ocr_node(client):
     return ocr_node
 
 
+def analyse_ocr_result(state: ChatState) -> ChatState:
+    ocr_result = state['ocr_result']
+    necessary_sections = state['necessary_sections']
+
+    llm = ChatGroq(
+        api_key="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",
+        model="openai/gpt-oss-120b",
+    )
+
+    parser = PydanticOutputParser(pydantic_object=section_presence)
+
+    prompt = PromptTemplate(
+        template="""Analyse this OCR result: {result}\nCheck if these sections are present in the document: {sections}.
+        If present then return True else return False \n{format_instructions}""",
+        input_variables=['result', 'sections'],
+        partial_variables={'format_instructions': parser.get_format_instructions()}
+    )
+
+    chain = prompt | llm | parser
+    result = chain.invoke({'result': ocr_result, 'sections': necessary_sections})
+
+    return {'section_presence': result.section_present}
+
+
+def classify_node(state: ChatState) -> str:
+    if state.get('section_presence', False):
+        return "audit"
+    else:
+
+        llm = ChatGroq(
+            api_key="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",
+            model="openai/gpt-oss-120b",
+        )
+
+        parser = PydanticOutputParser(pydantic_object=missing_sections_class)
+
+        prompt = PromptTemplate(
+            template="""Analyse this OCR result: {result}\n Check the sections which are not present in the OCR result \n
+            The necessary sections are {sections}. Tell the missing ones.
+            \n{format_instructions}""",
+            input_variables=['result', 'sections'],
+            partial_variables={'format_instructions': parser.get_format_instructions()}
+        )
+
+        chain = prompt | llm | parser
+        ocr_result = state.get('ocr_result', '')
+        necessary_sections = state.get('necessary_sections', [])
+        result = chain.invoke({'result': ocr_result, 'sections': necessary_sections})
+
+        state['missing_sections'] = result.section_not_in_doc
+
+        # The value returned by interrupt() will be the value passed to Command(resume=...)
+        approval = interrupt({
+            "type":"approval",
+            "missing_sections":state['missing_sections'],
+            "question":"These are the missing sections in your audit , Do you still want to continue with the audit?",
+            "instruction" : "Approve this request Yes/No"
+        })
+        
+        if str(approval).lower() == 'yes':
+            return "audit"
+        else:
+            return END
+
+def audit(state : ChatState) -> ChatState:
+    llm = ChatGroq(
+        api_key="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",
+        model="openai/gpt-oss-120b",
+    )
+
+    prompt = PromptTemplate(
+        template="According to this audit plan: {audit_plan} and this document content: {ocr_result}, provide me a complete audit report.",
+        input_variables=['audit_plan', 'ocr_result']
+    )
+
+    chain = prompt | llm
+    result = chain.invoke({'audit_plan': state['audit_plan'], 'ocr_result': state['ocr_result']})
+
+    return {'audit_report': result.content if hasattr(result, 'content') else str(result)}
+
 graph = StateGraph(ChatState)
 client = MultiServerMCPClient(mcpServers.SERVERS) 
 
 graph.add_node('get_rules' , get_rules)
 graph.add_node('audit_plan_generator' , audit_plan_generator)
+graph.add_node('analyse_ocr_result', analyse_ocr_result)
+graph.add_node('audit' , audit)
 
 ocr_node = create_ocr_node(client=client)
 graph.add_node('ocr_node' , ocr_node)
+
 graph.add_edge(START, "get_rules")
 graph.add_edge("get_rules", "audit_plan_generator")
 graph.add_edge("audit_plan_generator", "ocr_node")
-graph.add_edge("ocr_node" , END)
+graph.add_edge("ocr_node", "analyse_ocr_result")
+graph.add_conditional_edges(
+    "analyse_ocr_result", 
+    classify_node,
+    {
+        END: END,
+        "audit": "audit"
+    }
+    # condition : next_node
+)
+graph.add_edge("audit", END)
 
-workflow = graph.compile()
+checkpointer = MemorySaver() 
+workflow = graph.compile(checkpointer=checkpointer)
 
 # print(workflow)
 

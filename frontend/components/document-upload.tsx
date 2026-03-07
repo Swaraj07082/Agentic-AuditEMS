@@ -19,6 +19,8 @@ export default function DocumentUpload() {
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [interruptData, setInterruptData] = useState<any>(null);
+  const [auditReport, setAuditReport] = useState<string | null>(null);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -76,20 +78,16 @@ export default function DocumentUpload() {
     if (files.length === 0) return;
 
     setIsAnalyzing(true);
+    setInterruptData(null);
+    setAuditReport(null);
 
     try {
       // Create FormData adding all files
       const formData = new FormData();
       files.forEach((fileObj) => {
-        // Appending each file. Note: if the backend only supports one file, 
-        // this might need to be adjusted or requests sent sequentially.
-        // Usually, multiple files are sent under the same key or distinct keys.
-        // Assuming backend 'file' field as seen in fastapi_server.py
         formData.append('file', fileObj.file);
       });
 
-      // Based on fastapi_server.py, the endpoint is /ocr/ (with trailing slash)
-      // And it runs on port 4000 usually, but here we assume relative path or proxy
       const response = await fetch("http://127.0.0.1:4000/ocr", {
         method: "POST",
         body: formData
@@ -101,14 +99,59 @@ export default function DocumentUpload() {
 
       const data = await response.json();
       console.log('OCR Response:', data);
-      toast.success('Documents processed successfully');
 
-      // Optionally clear files after successful analysis
-      // setFiles([]);
+      if (data.interrupt) {
+        setInterruptData(data.interrupt[0]); // LangGraph returns an array of interrupts
+        toast.info('Action required: Confirm missing sections');
+      } else if (data.audit_report) {
+        setAuditReport(data.audit_report);
+        toast.success('Audit completed successfully');
+      } else {
+        toast.success('Documents processed successfully');
+      }
 
     } catch (error) {
       console.error('Error uploading files:', error);
       toast.error('Failed to process documents');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleResume = async (approval: string) => {
+    setIsAnalyzing(true);
+    try {
+      const response = await fetch("http://127.0.0.1:4000/resume", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          thread_id: "1", // Same thread_id as in fastapi_server.py
+          approval: approval
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Resume failed: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      console.log('Resume Response:', data);
+
+      if (data.audit_report) {
+        setAuditReport(data.audit_report);
+        setInterruptData(null);
+        toast.success('Audit completed successfully');
+      } else if (data.interrupt) {
+        setInterruptData(data.interrupt[0]);
+      } else {
+        setInterruptData(null);
+        toast.info('Workflow finished');
+      }
+    } catch (error) {
+      console.error('Error resuming workflow:', error);
+      toast.error('Failed to resume audit');
     } finally {
       setIsAnalyzing(false);
     }
@@ -270,6 +313,90 @@ export default function DocumentUpload() {
                 'Analyze Documents'
               )}
             </Button>
+          </div>
+        )}
+
+        {/* Interrupt UI */}
+        {interruptData && (
+          <div className="mt-12 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl p-6 sm:p-8 animate-fade-in-up">
+            <div className="flex items-start gap-4 mb-6">
+              <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
+                <AlertCircle className="w-6 h-6 text-amber-600 dark:text-amber-500" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-foreground mb-2">
+                  Compliance Warning: Missing Sections
+                </h3>
+                <p className="text-foreground/70">
+                  {interruptData.value.question}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-background/50 rounded-xl p-4 mb-8">
+              <h4 className="text-sm font-semibold text-foreground/50 uppercase tracking-wider mb-3">
+                Identified Missing Sections
+              </h4>
+              <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {interruptData.value.missing_sections.map((section: string, index: number) => (
+                  <li key={index} className="flex items-center gap-2 text-foreground/80">
+                    <div className="w-1.5 h-1.5 rounded-full bg-amber-500"></div>
+                    {section}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button
+                onClick={() => handleResume('Yes')}
+                className="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-semibold h-12"
+                disabled={isAnalyzing}
+              >
+                {isAnalyzing ? (
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                ) : (
+                  'Continue with Audit'
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => handleResume('No')}
+                className="flex-1 border-amber-200 dark:border-amber-900/50 text-amber-700 dark:text-amber-500 hover:bg-amber-100 dark:hover:bg-amber-900/10 h-12"
+                disabled={isAnalyzing}
+              >
+                Abort Audit
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Audit Report */}
+        {auditReport && (
+          <div className="mt-12 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900/50 rounded-2xl p-6 sm:p-8 animate-fade-in-up">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                <CheckCircle className="w-6 h-6 text-green-600 dark:text-green-500" />
+              </div>
+              <h3 className="text-2xl font-bold text-foreground">Final Audit Report</h3>
+            </div>
+            <div className="bg-background/80 rounded-xl p-6 border border-green-100 dark:border-green-900/30 prose prose-slate dark:prose-invert max-w-none">
+              <pre className="whitespace-pre-wrap font-sans text-foreground/90 leading-relaxed">
+                {auditReport}
+              </pre>
+            </div>
+            <div className="mt-8 flex justify-end">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setAuditReport(null);
+                  setFiles([]);
+                }}
+                className="text-green-700 dark:text-green-500 border-green-200 dark:border-green-900/50 hover:bg-green-50 dark:hover:bg-green-900/10"
+              >
+                Start New Audit
+              </Button>
+            </div>
           </div>
         )}
       </div>
