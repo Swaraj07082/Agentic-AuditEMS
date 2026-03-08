@@ -156,12 +156,17 @@ def classify_node(state: ChatState) -> str:
         state['missing_sections'] = result.section_not_in_doc
 
         # The value returned by interrupt() will be the value passed to Command(resume=...)
+        # value will be yes or no
         approval = interrupt({
             "type":"approval",
             "missing_sections":state['missing_sections'],
             "question":"These are the missing sections in your audit , Do you still want to continue with the audit?",
             "instruction" : "Approve this request Yes/No"
         })
+
+        # interrupt pauses the workflow and waits for the user to provide a response
+        # the workflow resumes once the user provides a response
+        # command gives the interrupt a value and based upon that we move ahead
         
         if str(approval).lower() == 'yes':
             return "audit"

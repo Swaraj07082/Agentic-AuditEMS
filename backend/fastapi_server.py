@@ -62,7 +62,8 @@ async def resume_workflow(request: ResumeRequest):
     
     # Use Command to resume the workflow from the interrupt point
     result = await workflow.ainvoke(Command(resume=request.approval), config=config)
-    
+    # request.approval is the value which is yes or no and is returned to interrupt
+
     # Cleanup result for response
     if "document" in result:
         del result["document"]
