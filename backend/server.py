@@ -22,6 +22,8 @@ class ChatState(TypedDict):
     audit_plan : list[str]
     ocr_result : str
     audit_report : str
+    feedback : str
+    move_ahead : bool
 
 
 class required_sections(BaseModel):
@@ -35,6 +37,11 @@ class section_presence(BaseModel):
 
 class missing_sections_class(BaseModel):
     section_not_in_doc : list[str] = Field(description = "list of the sections which are not present in the document")
+
+class validate_node_result(BaseModel):
+    audit_report : str = Field(description="The audit report")
+    feedback : str = Field(description="The feedback for the next iteration")
+    move_ahead : bool = Field(description="True if the audit_report can be further moved ahead , False otherwise")
 
 def get_rules(state : ChatState) -> ChatState:
     llm = ChatGroq(
@@ -127,6 +134,39 @@ def analyse_ocr_result(state: ChatState) -> ChatState:
 
     return {'section_presence': result.section_present}
 
+def validate_node(state : ChatState) -> ChatState:
+
+    llm = ChatGroq(
+        api_key="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",
+        model="openai/gpt-oss-120b",
+    )
+
+    parser = PydanticOutputParser(pydantic_object=validate_node_result)
+
+    prompt = PromptTemplate(
+        template="""Analyse this OCR result : {result} and the audit plan - {audit_plan} and accordingly the audit_report -> {audit_report} and check this feedback - {feedback} from previous iteration , and decide if the audit_report can be further moved ahead or else fix the audit_report and provide further feedback to improve in next iteration. 
+        """,
+        input_variables=['result', 'audit_plan' , 'audit_report' , 'feedback'],
+        partial_variables={'format_instructions': parser.get_format_instructions()}
+    )
+
+    chain = prompt | llm | parser
+    result = chain.invoke({
+        'result': state.get('ocr_result', ''), 
+        'audit_plan': state.get('audit_plan', []), 
+        'audit_report': state.get('audit_report', ''), 
+        'feedback' : state.get('feedback', '')
+    })
+
+    return {'audit_report': result.audit_report , 'feedback' : result.feedback , 'move_ahead' : result.move_ahead}
+
+def should_continue(state: ChatState) -> str:
+    if state.get('move_ahead'):
+        return END
+    else:
+        return "audit"
+    
+
 
 def classify_node(state: ChatState) -> str:
     if state.get('section_presence', False):
@@ -196,6 +236,7 @@ graph.add_node('get_rules' , get_rules)
 graph.add_node('audit_plan_generator' , audit_plan_generator)
 graph.add_node('analyse_ocr_result', analyse_ocr_result)
 graph.add_node('audit' , audit)
+graph.add_node('validate_node', validate_node)
 
 ocr_node = create_ocr_node(client=client)
 graph.add_node('ocr_node' , ocr_node)
@@ -211,9 +252,16 @@ graph.add_conditional_edges(
         END: END,
         "audit": "audit"
     }
-    # condition : next_node
 )
-graph.add_edge("audit", END)
+graph.add_edge("audit", "validate_node")
+graph.add_conditional_edges(
+    "validate_node",
+    should_continue,
+    {
+        END: END,
+        "audit": "audit"
+    }
+)
 
 checkpointer = MemorySaver() 
 workflow = graph.compile(checkpointer=checkpointer)
