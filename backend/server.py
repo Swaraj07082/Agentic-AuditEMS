@@ -46,18 +46,17 @@ class validate_node_result(BaseModel):
 def get_rules(state : ChatState) -> ChatState:
     llm = ChatGroq(
         api_key="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",
-        model="openai/gpt-oss-120b",
+        model="llama-3.3-70b-versatile",
     )
 
-    parser = PydanticOutputParser(pydantic_object = required_sections)
+    structured_llm = llm.with_structured_output(required_sections)
 
     prompt = PromptTemplate(
-        template = "Give me a complete list of required sections in a document for compliance with {standard} under Indian Financial Laws. /n {format_instruction}",
+        template = "Give me a complete list of required sections in a document for compliance with {standard} under Indian Financial Laws. Return ONLY the JSON object matching the schema.",
         input_variables = ['standard'],
-        partial_variables = {'format_instruction': parser.get_format_instructions()},
     )
 
-    chain = prompt | llm | parser
+    chain = prompt | structured_llm
     result = chain.invoke({'standard' : state["standard"]})
 
     print(result)
@@ -68,19 +67,17 @@ def get_rules(state : ChatState) -> ChatState:
 def audit_plan_generator(state : ChatState) -> ChatState:
     llm = ChatGroq(
         api_key="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",
-        model="openai/gpt-oss-120b",
+        model="llama-3.3-70b-versatile",
     )
 
-    parser = PydanticOutputParser(pydantic_object=audit_plan_structure)
+    structured_llm = llm.with_structured_output(audit_plan_structure)
 
     prompt = PromptTemplate(
-        template="Provide me an audit plan for compliance with this standard - {standard} , for these sections - {sections} present in the document /n" \
-        "{format_instructions}",
+        template="Provide me an audit plan for compliance with this standard - {standard} , for these sections - {sections} present in the document. Return ONLY the JSON object matching the schema.",
         input_variables=['standard' , 'sections'],
-        partial_variables= {'format_instructions' : parser.get_format_instructions()}
     )
 
-    chain = prompt | llm | parser
+    chain = prompt | structured_llm
 
     result = chain.invoke({'standard' : state['standard'] , 'sections' : state["necessary_sections"]})
     # print(result)
@@ -117,19 +114,18 @@ def analyse_ocr_result(state: ChatState) -> ChatState:
 
     llm = ChatGroq(
         api_key="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",
-        model="openai/gpt-oss-120b",
+        model="llama-3.3-70b-versatile",
     )
 
-    parser = PydanticOutputParser(pydantic_object=section_presence)
+    structured_llm = llm.with_structured_output(section_presence)
 
     prompt = PromptTemplate(
         template="""Analyse this OCR result: {result}\nCheck if these sections are present in the document: {sections}.
-        If present then return True else return False \n{format_instructions}""",
+        If present then return True else return False. Return ONLY the JSON object matching the schema.""",
         input_variables=['result', 'sections'],
-        partial_variables={'format_instructions': parser.get_format_instructions()}
     )
 
-    chain = prompt | llm | parser
+    chain = prompt | structured_llm
     result = chain.invoke({'result': ocr_result, 'sections': necessary_sections})
 
     return {'section_presence': result.section_present}
@@ -138,19 +134,18 @@ def validate_node(state : ChatState) -> ChatState:
 
     llm = ChatGroq(
         api_key="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",
-        model="openai/gpt-oss-120b",
+        model="llama-3.3-70b-versatile",
     )
 
-    parser = PydanticOutputParser(pydantic_object=validate_node_result)
+    structured_llm = llm.with_structured_output(validate_node_result)
 
     prompt = PromptTemplate(
         template="""Analyse this OCR result : {result} and the audit plan - {audit_plan} and accordingly the audit_report -> {audit_report} and check this feedback - {feedback} from previous iteration , and decide if the audit_report can be further moved ahead or else fix the audit_report and provide further feedback to improve in next iteration. 
-        """,
+        Return ONLY the JSON object matching the schema.""",
         input_variables=['result', 'audit_plan' , 'audit_report' , 'feedback'],
-        partial_variables={'format_instructions': parser.get_format_instructions()}
     )
 
-    chain = prompt | llm | parser
+    chain = prompt | structured_llm
     result = chain.invoke({
         'result': state.get('ocr_result', ''), 
         'audit_plan': state.get('audit_plan', []), 
@@ -175,20 +170,19 @@ def classify_node(state: ChatState) -> str:
 
         llm = ChatGroq(
             api_key="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",
-            model="openai/gpt-oss-120b",
+            model="llama-3.3-70b-versatile",
         )
 
-        parser = PydanticOutputParser(pydantic_object=missing_sections_class)
+        structured_llm = llm.with_structured_output(missing_sections_class)
 
         prompt = PromptTemplate(
             template="""Analyse this OCR result: {result}\n Check the sections which are not present in the OCR result \n
             The necessary sections are {sections}. Tell the missing ones.
-            \n{format_instructions}""",
+            Return ONLY the JSON object matching the schema.""",
             input_variables=['result', 'sections'],
-            partial_variables={'format_instructions': parser.get_format_instructions()}
         )
 
-        chain = prompt | llm | parser
+        chain = prompt | structured_llm
         ocr_result = state.get('ocr_result', '')
         necessary_sections = state.get('necessary_sections', [])
         result = chain.invoke({'result': ocr_result, 'sections': necessary_sections})
@@ -216,7 +210,7 @@ def classify_node(state: ChatState) -> str:
 def audit(state : ChatState) -> ChatState:
     llm = ChatGroq(
         api_key="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",
-        model="openai/gpt-oss-120b",
+        model="llama-3.3-70b-versatile",
     )
 
     prompt = PromptTemplate(
@@ -277,3 +271,34 @@ workflow = graph.compile(checkpointer=checkpointer)
 # final_result = workflow.ainvoke(initial_state)
 
 # MCP expects the data to be in JSON format , therefore we convert to base64 and send as string in JSON format , and not raw bytes.
+
+"""
+WHY WITH_STRUCTURED_OUTPUT IS BETTER THAN PYDANTICOUTPUTPARSER:
+
+1. Model-Native Schema Enforcement:
+   - PydanticOutputParser: Appends format instructions to the prompt. The model often fails 
+     by adding "rambling" text before or after the JSON.
+   - with_structured_output: Leverages model-specific features like Tool Calling or JSON Mode. 
+     The schema is passed as a dedicated parameter, ensuring strict adherence.
+
+2. Robustness Against "Rambling":
+   - PydanticOutputParser: Tries to parse the entire response string. Any extra characters 
+     outside the JSON block cause a JSONDecodeError.
+   - with_structured_output: Extracts only the structured part. Even if the model talks 
+     too much, the structured output layer filters for just the JSON object.
+
+3. Reduced Token Usage:
+   - Eliminates the need for large parser format instructions in the prompt, 
+     saving context window space and reducing latency.
+
+4. Direct Object Return:
+   - The chain returns a Pydantic object (or dict) directly, making the code cleaner 
+     and avoiding manual parsing steps.
+
+5 - For pydantic output parser we need to append format instructions to the prompt and 
+    for with_structured_output we do not need to append format instructions to the prompt , saving tokens.
+    Pydantic output parser is just extra instruction as a prompt to the LLM , llm can speak after giving the output.
+    Eg - "I have done your work" , which is not a valid json.
+    With structured output , llm will not speak after giving the output.
+    it works under the hood.
+"""
